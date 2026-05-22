@@ -111,10 +111,6 @@ def _missing_event_fields(event_details: dict, required_fields: tuple[str, ...])
     return [field for field in required_fields if field not in event_details]
 
 
-def _format_gbp(value: object) -> str:
-    return f"£{value}"
-
-
 def _render_fact(label: str, testid: str, value: object) -> str:
     return f"""
         <div class="fact-row">
@@ -143,8 +139,8 @@ def _render_flyer_html(event_details: dict) -> str:
             _render_fact("Party size", "party_size", party_size),
             _render_fact("Weather", "condition", condition),
             _render_fact("Temperature", "temperature_c", f"{temperature_c}C"),
-            _render_fact("Total", "total_gbp", _format_gbp(total_gbp)),
-            _render_fact("Deposit", "deposit_required_gbp", _format_gbp(deposit_required_gbp)),
+            _render_fact("Total", "total_gbp", f"£{total_gbp}"),
+            _render_fact("Deposit", "deposit_required_gbp", f"£{deposit_required_gbp}"),
         ]
     )
     template = Template(_FLYER_TEMPLATE.read_text(encoding="utf-8"))
