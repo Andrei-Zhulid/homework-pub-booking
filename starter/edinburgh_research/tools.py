@@ -14,6 +14,7 @@ The grader checks for:
 
 from __future__ import annotations
 
+import html
 import json
 from pathlib import Path
 
@@ -93,6 +94,26 @@ def _deposit_required_gbp(total_gbp: int) -> int:
     if total_gbp <= 1000:
         return _gbp(total_gbp * 0.20)
     return _gbp(total_gbp * 0.30)
+
+
+def _escape(value: object) -> str:
+    return html.escape(str(value), quote=True)
+
+
+def _missing_event_fields(event_details: dict, required_fields: tuple[str, ...]) -> list[str]:
+    return [field for field in required_fields if field not in event_details]
+
+
+def _format_gbp(value: object) -> str:
+    return f"£{value}"
+
+
+def _render_fact(label: str, testid: str, value: object) -> str:
+    return f"""
+        <div class="fact-row">
+          <dt>{_escape(label)}</dt>
+          <dd data-testid="{_escape(testid)}">{_escape(value)}</dd>
+        </div>"""
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +441,170 @@ def generate_flyer(session: Session, event_details: dict) -> ToolResult:
     IMPORTANT: this tool MUST be registered with parallel_safe=False
     because it writes a file.
     """
-    raise NotImplementedError("TODO 4: implement generate_flyer")
+    tool_name = "generate_flyer"
+    arguments = {"event_details": event_details}
+    required_fields = (
+        "venue_name",
+        "venue_address",
+        "date",
+        "time",
+        "party_size",
+        "condition",
+        "temperature_c",
+        "total_gbp",
+        "deposit_required_gbp",
+    )
+
+    if not isinstance(event_details, dict):
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="event_details must be a dictionary",
+            context={"event_details_type": type(event_details).__name__},
+        )
+
+    missing = _missing_event_fields(event_details, required_fields)
+    if missing:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message=f"event_details missing required field(s): {', '.join(missing)}",
+            context={"missing_fields": missing},
+        )
+
+    try:
+        venue_name = event_details["venue_name"]
+        venue_address = event_details["venue_address"]
+        date = event_details["date"]
+        time = event_details["time"]
+        party_size = event_details["party_size"]
+        condition = event_details["condition"]
+        temperature_c = event_details["temperature_c"]
+        total_gbp = event_details["total_gbp"]
+        deposit_required_gbp = event_details["deposit_required_gbp"]
+
+        facts_html = "\n".join(
+            [
+                _render_fact("Venue", "venue_name", venue_name),
+                _render_fact("Address", "venue_address", venue_address),
+                _render_fact("Date", "date", date),
+                _render_fact("Time", "time", time),
+                _render_fact("Party size", "party_size", party_size),
+                _render_fact("Weather", "condition", condition),
+                _render_fact("Temperature", "temperature_c", f"{temperature_c}C"),
+                _render_fact("Total", "total_gbp", _format_gbp(total_gbp)),
+                _render_fact(
+                    "Deposit",
+                    "deposit_required_gbp",
+                    _format_gbp(deposit_required_gbp),
+                ),
+            ]
+        )
+        flyer_html = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{_escape(venue_name)} Event Flyer</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --ink: rgb(29, 37, 44);
+      --muted: rgb(92, 104, 115);
+      --paper: rgb(255, 253, 248);
+      --line: rgb(216, 208, 195);
+      --accent: rgb(159, 61, 46);
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: rgb(238, 231, 220);
+      color: var(--ink);
+    }}
+    article {{
+      max-width: 720px;
+      margin: 32px auto;
+      padding: 40px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+    }}
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 40px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }}
+    .subtitle {{
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 18px;
+    }}
+    dl {{
+      display: grid;
+      gap: 0;
+      margin: 0;
+      border-top: 1px solid var(--line);
+    }}
+    .fact-row {{
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+      gap: 20px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--line);
+    }}
+    dt {{
+      color: var(--muted);
+      font-size: 14px;
+      text-transform: uppercase;
+    }}
+    dd {{
+      margin: 0;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }}
+    .weather {{
+      margin: 28px 0 0;
+      padding-left: 16px;
+      border-left: 4px solid var(--accent);
+      color: var(--muted);
+    }}
+  </style>
+</head>
+<body>
+  <article>
+    <h1 data-testid="title">{_escape(venue_name)} Night</h1>
+    <p class="subtitle">Edinburgh booking details for <span data-testid="date_summary">{_escape(date)}</span>.</p>
+    <dl>
+{facts_html}
+    </dl>
+    <p class="weather">
+      Forecast: <span data-testid="condition_summary">{_escape(condition)}</span>,
+      <span data-testid="temperature_summary">{_escape(temperature_c)}C</span>.
+    </p>
+  </article>
+</body>
+</html>
+"""
+        flyer_path = session.path("workspace/flyer.html")
+        flyer_path.parent.mkdir(parents=True, exist_ok=True)
+        flyer_path.write_text(flyer_html, encoding="utf-8")
+
+        output = {
+            "path": "workspace/flyer.html",
+            "bytes_written": len(flyer_html.encode("utf-8")),
+        }
+        return _logged_result(
+            tool_name,
+            arguments,
+            True,
+            output,
+            f"generate_flyer: wrote workspace/flyer.html ({len(flyer_html)} chars)",
+        )
+    except ToolError:
+        raise
+    except Exception as exc:
+        return _execution_failed_result(tool_name, arguments, exc)
 
 
 # ---------------------------------------------------------------------------
