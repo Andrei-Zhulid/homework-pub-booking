@@ -91,16 +91,14 @@ def _find_venue(venues: list, venue_id: str) -> dict | None:
     return next((venue for venue in venues if venue["id"] == venue_id), None)
 
 
-def _gbp(amount: float) -> int:
-    return int(round(amount))
-
-
 def _deposit_required_gbp(total_gbp: int) -> int:
     if total_gbp < 300:
         return 0
     if total_gbp <= 1000:
-        return _gbp(total_gbp * 0.20)
-    return _gbp(total_gbp * 0.30)
+        amount = total_gbp * 0.20
+        return round(amount)
+    amount1 = total_gbp * 0.30
+    return round(amount1)
 
 
 def _escape(value: object) -> str:
@@ -425,9 +423,9 @@ def calculate_cost(
         min_spend_gbp = venue["min_spend_gbp"]
 
         billable_hours = max(1, duration_hours)
-        subtotal_gbp = _gbp(base_per_head * venue_multiplier * party_size * billable_hours)
-        service_gbp = _gbp(subtotal_gbp * service_percent / 100)
-        total_gbp = _gbp(max(subtotal_gbp, min_spend_gbp) + service_gbp + hire_fee_gbp)
+        subtotal_gbp = round(base_per_head * venue_multiplier * party_size * billable_hours)
+        service_gbp = round(subtotal_gbp * service_percent / 100)
+        total_gbp = round(max(subtotal_gbp, min_spend_gbp) + service_gbp + hire_fee_gbp)
         deposit_required_gbp = _deposit_required_gbp(total_gbp)
 
         output = {
