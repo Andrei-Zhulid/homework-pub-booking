@@ -26,8 +26,61 @@ from starter.edinburgh_research.integrity import _TOOL_CALL_LOG, record_tool_cal
 _SAMPLE_DATA = Path(__file__).parent / "sample_data"
 
 
+def _logged_result(
+    tool_name: str,
+    arguments: dict,
+    success: bool,
+    output: dict,
+    summary: str,
+    error: ToolError | None = None,
+) -> ToolResult:
+    record_tool_call(tool_name, arguments, output)
+    return ToolResult(success=success, output=output, summary=summary, error=error)
+
+
+def _invalid_input_result(tool_name: str, arguments: dict, message: str, context: dict) -> ToolResult:
+    err = ToolError(code="SA_TOOL_INVALID_INPUT", message=message, context=context)
+    output = {"error": "invalid_input", "message": err.message}
+    return _logged_result(tool_name, arguments, False, output, str(err), err)
+
+
+def _load_json_fixture(filename: str) -> object:
+    fixture_path = _SAMPLE_DATA / filename
+    fixture_name = fixture_path.stem
+
+    if not fixture_path.exists():
+        raise ToolError(
+            code="SA_TOOL_DEPENDENCY_MISSING",
+            message=f"{fixture_name} fixture is missing",
+            context={"path": str(fixture_path)},
+        )
+
+    try:
+        return json.loads(fixture_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ToolError(
+            code="SA_TOOL_DEPENDENCY_MISSING",
+            message=f"{fixture_name} fixture is not valid JSON",
+            context={"path": str(fixture_path)},
+            cause=exc,
+        ) from exc
+
+
+def _venue_matches(venue: object, near_query: str, party_size: int, budget_max_gbp: int) -> bool:
+    if not isinstance(venue, dict):
+        return False
+
+    venue_minimum_gbp = venue.get("hire_fee_gbp", 0) + venue.get("min_spend_gbp", 0)
+    return (
+        venue.get("open_now") is True
+        and near_query in str(venue.get("area", "")).casefold()
+        and venue.get("seats_available_evening", 0) >= party_size
+        and venue_minimum_gbp <= budget_max_gbp
+    )
+
+
 # ---------------------------------------------------------------------------
-# TODO 1 — venue_search
+# venue_search
 # ---------------------------------------------------------------------------
 def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> ToolResult:
     """Search for Edinburgh venues near <near> that can seat the party.
@@ -45,8 +98,7 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
     MUST call record_tool_call(...) before returning so the integrity
     check can see what data was produced.
     """
-    # TODO 1a: load venues.json. Raise ToolError(SA_TOOL_DEPENDENCY_MISSING)
-    #          if the file is absent.
+    tool_name = "venue_search"
     arguments = {
         "near": near,
         "party_size": party_size,
@@ -54,79 +106,54 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
     }
 
     if not isinstance(near, str) or not near.strip():
-        err = ToolError(
-            code="SA_TOOL_INVALID_INPUT",
+        return _invalid_input_result(
+            tool_name,
+            arguments,
             message="near must be a non-empty string",
             context={"near": near},
         )
-        output = {"error": "invalid_input", "message": err.message}
-        record_tool_call("venue_search", arguments, output)
-        return ToolResult(success=False, output=output, summary=str(err), error=err)
 
-    if not isinstance(party_size, int) or party_size < 1:
-        err = ToolError(
-            code="SA_TOOL_INVALID_INPUT",
+    if type(party_size) is not int or party_size < 1:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
             message="party_size must be a positive integer",
             context={"party_size": party_size},
         )
-        output = {"error": "invalid_input", "message": err.message}
-        record_tool_call("venue_search", arguments, output)
-        return ToolResult(success=False, output=output, summary=str(err), error=err)
 
-    if not isinstance(budget_max_gbp, int) or budget_max_gbp < 0:
-        err = ToolError(
-            code="SA_TOOL_INVALID_INPUT",
+    if type(budget_max_gbp) is not int or budget_max_gbp < 0:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
             message="budget_max_gbp must be a non-negative integer",
             context={"budget_max_gbp": budget_max_gbp},
         )
-        output = {"error": "invalid_input", "message": err.message}
-        record_tool_call("venue_search", arguments, output)
-        return ToolResult(success=False, output=output, summary=str(err), error=err)
 
-    venues_path = _SAMPLE_DATA / "venues.json"
-    if not venues_path.exists():
-        raise ToolError(
-            code="SA_TOOL_DEPENDENCY_MISSING",
-            message="venues fixture is missing",
-            context={"path": str(venues_path)},
-        )
-
-    try:
-        venues = json.loads(venues_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ToolError(
-            code="SA_TOOL_DEPENDENCY_MISSING",
-            message="venues fixture is not valid JSON",
-            context={"path": str(venues_path)},
-            cause=exc,
-        ) from exc
+    venues = _load_json_fixture("venues.json")
 
     if not isinstance(venues, list):
         raise ToolError(
             code="SA_TOOL_DEPENDENCY_MISSING",
             message="venues fixture must contain a list of venues",
-            context={"path": str(venues_path)},
+            context={"path": str(_SAMPLE_DATA / "venues.json")},
         )
 
-    search_count = sum(1 for record in _TOOL_CALL_LOG if record.tool_name == "venue_search")
+    search_count = sum(1 for record in _TOOL_CALL_LOG if record.tool_name == tool_name)
     if search_count >= 3:
         output = {"error": "too_many_searches", "count": search_count}
-        record_tool_call("venue_search", arguments, output)
-        return ToolResult(
-            success=False,
-            output=output,
-            summary="STOP calling venue_search; use the results you already have.",
+        return _logged_result(
+            tool_name,
+            arguments,
+            False,
+            output,
+            "STOP calling venue_search; use the results you already have.",
         )
 
     near_query = near.casefold()
     results = [
         venue
         for venue in venues
-        if isinstance(venue, dict)
-        and venue.get("open_now") is True
-        and near_query in str(venue.get("area", "")).casefold()
-        and venue.get("seats_available_evening", 0) >= party_size
-        and venue.get("hire_fee_gbp", 0) + venue.get("min_spend_gbp", 0) <= budget_max_gbp
+        if _venue_matches(venue, near_query, party_size, budget_max_gbp)
     ]
     output = {
         "near": near,
@@ -134,11 +161,12 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
         "results": results,
         "count": len(results),
     }
-    record_tool_call("venue_search", arguments, output)
-    return ToolResult(
-        success=True,
-        output=output,
-        summary=f"venue_search({near}, party={party_size}): {len(results)} result(s)",
+    return _logged_result(
+        tool_name,
+        arguments,
+        True,
+        output,
+        f"venue_search({near}, party={party_size}): {len(results)} result(s)",
     )
 
 
