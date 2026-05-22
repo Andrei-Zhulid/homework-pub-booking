@@ -629,7 +629,7 @@ def build_tool_registry(session: Session) -> ToolRegistry:
                         "party_size": 6,
                         "duration_hours": 3,
                     },
-                    "output": {"total_gbp": 540, "deposit_required_gbp": 0},
+                    "output": {"total_gbp": 356, "deposit_required_gbp": 71},
                 }
             ],
         )
