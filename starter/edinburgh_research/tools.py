@@ -46,30 +46,19 @@ def _invalid_input_result(tool_name: str, arguments: dict, message: str, context
 
 def _load_json_fixture(filename: str) -> object:
     fixture_path = _SAMPLE_DATA / filename
-    fixture_name = fixture_path.stem
-
-    if not fixture_path.exists():
-        raise ToolError(
-            code="SA_TOOL_DEPENDENCY_MISSING",
-            message=f"{fixture_name} fixture is missing",
-            context={"path": str(fixture_path)},
-        )
 
     try:
         return json.loads(fixture_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+    except (FileNotFoundError, OSError, json.JSONDecodeError) as exc:
         raise ToolError(
             code="SA_TOOL_DEPENDENCY_MISSING",
-            message=f"{fixture_name} fixture is not valid JSON",
+            message=f"could not load fixture {filename}",
             context={"path": str(fixture_path)},
             cause=exc,
         ) from exc
 
 
-def _venue_matches(venue: object, near_query: str, party_size: int, budget_max_gbp: int) -> bool:
-    if not isinstance(venue, dict):
-        return False
-
+def _venue_matches(venue: dict, near_query: str, party_size: int, budget_max_gbp: int) -> bool:
     venue_minimum_gbp = venue.get("hire_fee_gbp", 0) + venue.get("min_spend_gbp", 0)
     return (
         venue.get("open_now") is True
@@ -77,6 +66,22 @@ def _venue_matches(venue: object, near_query: str, party_size: int, budget_max_g
         and venue.get("seats_available_evening", 0) >= party_size
         and venue_minimum_gbp <= budget_max_gbp
     )
+
+
+def _find_venue(venues: list, venue_id: str) -> dict | None:
+    return next((venue for venue in venues if venue["id"] == venue_id), None)
+
+
+def _gbp(amount: float) -> int:
+    return int(round(amount))
+
+
+def _deposit_required_gbp(total_gbp: int) -> int:
+    if total_gbp < 300:
+        return 0
+    if total_gbp <= 1000:
+        return _gbp(total_gbp * 0.20)
+    return _gbp(total_gbp * 0.30)
 
 
 # ---------------------------------------------------------------------------
@@ -130,13 +135,6 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
         )
 
     venues = _load_json_fixture("venues.json")
-
-    if not isinstance(venues, list):
-        raise ToolError(
-            code="SA_TOOL_DEPENDENCY_MISSING",
-            message="venues fixture must contain a list of venues",
-            context={"path": str(_SAMPLE_DATA / "venues.json")},
-        )
 
     search_count = sum(1 for record in _TOOL_CALL_LOG if record.tool_name == tool_name)
     if search_count >= 3:
@@ -205,16 +203,10 @@ def get_weather(city: str, date: str) -> ToolResult:
         )
 
     weather = _load_json_fixture("weather.json")
-    if not isinstance(weather, dict):
-        raise ToolError(
-            code="SA_TOOL_DEPENDENCY_MISSING",
-            message="weather fixture must contain a mapping of cities to dates",
-            context={"path": str(_SAMPLE_DATA / "weather.json")},
-        )
 
     city_key = city.strip().casefold()
     city_weather = weather.get(city_key)
-    if not isinstance(city_weather, dict):
+    if city_weather is None:
         return _invalid_input_result(
             tool_name,
             arguments,
@@ -224,7 +216,7 @@ def get_weather(city: str, date: str) -> ToolResult:
 
     date_key = date.strip()
     forecast = city_weather.get(date_key)
-    if not isinstance(forecast, dict):
+    if forecast is None:
         return _invalid_input_result(
             tool_name,
             arguments,
@@ -243,7 +235,7 @@ def get_weather(city: str, date: str) -> ToolResult:
 
 
 # ---------------------------------------------------------------------------
-# TODO 3 — calculate_cost
+# calculate_cost
 # ---------------------------------------------------------------------------
 def calculate_cost(
     venue_id: str,
@@ -258,7 +250,7 @@ def calculate_cost(
       venue_mult    = venue_modifiers[venue_id]
       subtotal      = base_per_head * venue_mult * party_size * max(1, duration_hours)
       service       = subtotal * service_charge_percent / 100
-      total         = subtotal + service + <venue's hire_fee_gbp + min_spend_gbp>
+      total         = max(subtotal, venue.min_spend_gbp) + service + <venue's hire_fee_gbp>
       deposit_rule  = per deposit_policy thresholds
 
     Returns:
@@ -276,7 +268,100 @@ def calculate_cost(
 
     MUST call record_tool_call(...) before returning.
     """
-    raise NotImplementedError("TODO 3: implement calculate_cost")
+    tool_name = "calculate_cost"
+    arguments = {
+        "venue_id": venue_id,
+        "party_size": party_size,
+        "duration_hours": duration_hours,
+        "catering_tier": catering_tier,
+    }
+
+    if not isinstance(venue_id, str) or not venue_id.strip():
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="venue_id must be a non-empty string",
+            context={"venue_id": venue_id},
+        )
+
+    if type(party_size) is not int or party_size < 1:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="party_size must be a positive integer",
+            context={"party_size": party_size},
+        )
+
+    if type(duration_hours) is not int:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="duration_hours must be an integer",
+            context={"duration_hours": duration_hours},
+        )
+
+    if not isinstance(catering_tier, str) or not catering_tier.strip():
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="catering_tier must be a non-empty string",
+            context={"catering_tier": catering_tier},
+        )
+
+    catering = _load_json_fixture("catering.json")
+    venues = _load_json_fixture("venues.json")
+    base_rates = catering["base_rates_gbp_per_head"]
+    venue_modifiers = catering["venue_modifiers"]
+
+    tier_key = catering_tier.strip()
+    if tier_key not in base_rates:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message=f"unknown catering tier {catering_tier!r}",
+            context={"catering_tier": catering_tier, "available_tiers": sorted(base_rates)},
+        )
+
+    venue_key = venue_id.strip()
+    venue = _find_venue(venues, venue_key)
+    if venue is None or venue_key not in venue_modifiers:
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message=f"unknown venue_id {venue_id!r}",
+            context={"venue_id": venue_id, "available_venues": sorted(venue_modifiers)},
+        )
+
+    base_per_head = base_rates[tier_key]
+    venue_multiplier = venue_modifiers[venue_key]
+    service_percent = catering["service_charge_percent"]
+    hire_fee_gbp = venue["hire_fee_gbp"]
+    min_spend_gbp = venue["min_spend_gbp"]
+
+    billable_hours = max(1, duration_hours)
+    subtotal_gbp = _gbp(base_per_head * venue_multiplier * party_size * billable_hours)
+    service_gbp = _gbp(subtotal_gbp * service_percent / 100)
+    total_gbp = _gbp(max(subtotal_gbp, min_spend_gbp) + service_gbp + hire_fee_gbp)
+    deposit_required_gbp = _deposit_required_gbp(total_gbp)
+
+    output = {
+        "venue_id": venue_key,
+        "party_size": party_size,
+        "duration_hours": duration_hours,
+        "catering_tier": tier_key,
+        "subtotal_gbp": subtotal_gbp,
+        "service_gbp": service_gbp,
+        "total_gbp": total_gbp,
+        "deposit_required_gbp": deposit_required_gbp,
+    }
+    return _logged_result(
+        tool_name,
+        arguments,
+        True,
+        output,
+        f"calculate_cost({venue_key}, {party_size}): total £{total_gbp}, "
+        f"deposit £{deposit_required_gbp}",
+    )
 
 
 # ---------------------------------------------------------------------------
