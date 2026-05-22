@@ -171,7 +171,7 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
 
 
 # ---------------------------------------------------------------------------
-# TODO 2 — get_weather
+# get_weather
 # ---------------------------------------------------------------------------
 def get_weather(city: str, date: str) -> ToolResult:
     """Look up the scripted weather for <city> on <date> (YYYY-MM-DD).
@@ -185,7 +185,61 @@ def get_weather(city: str, date: str) -> ToolResult:
 
     MUST call record_tool_call(...) before returning.
     """
-    raise NotImplementedError("TODO 2: implement get_weather")
+    tool_name = "get_weather"
+    arguments = {"city": city, "date": date}
+
+    if not isinstance(city, str) or not city.strip():
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="city must be a non-empty string",
+            context={"city": city},
+        )
+
+    if not isinstance(date, str) or not date.strip():
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message="date must be a non-empty string in YYYY-MM-DD format",
+            context={"date": date},
+        )
+
+    weather = _load_json_fixture("weather.json")
+    if not isinstance(weather, dict):
+        raise ToolError(
+            code="SA_TOOL_DEPENDENCY_MISSING",
+            message="weather fixture must contain a mapping of cities to dates",
+            context={"path": str(_SAMPLE_DATA / "weather.json")},
+        )
+
+    city_key = city.strip().casefold()
+    city_weather = weather.get(city_key)
+    if not isinstance(city_weather, dict):
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message=f"no weather fixture for city {city!r}",
+            context={"city": city, "available_cities": sorted(weather)},
+        )
+
+    date_key = date.strip()
+    forecast = city_weather.get(date_key)
+    if not isinstance(forecast, dict):
+        return _invalid_input_result(
+            tool_name,
+            arguments,
+            message=f"no weather fixture for {city_key} on {date_key}",
+            context={"city": city_key, "date": date_key, "available_dates": sorted(city_weather)},
+        )
+
+    output = {"city": city_key, "date": date_key, **forecast}
+    return _logged_result(
+        tool_name,
+        arguments,
+        True,
+        output,
+        f"get_weather({city}, {date_key}): {forecast['condition']}, {forecast['temperature_c']}C",
+    )
 
 
 # ---------------------------------------------------------------------------
