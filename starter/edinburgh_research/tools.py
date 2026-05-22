@@ -17,6 +17,7 @@ from __future__ import annotations
 import html
 import json
 from pathlib import Path
+from string import Template
 
 from sovereign_agent.errors import ToolError
 from sovereign_agent.session.directory import Session
@@ -25,6 +26,7 @@ from sovereign_agent.tools.registry import ToolRegistry, ToolResult, _Registered
 from starter.edinburgh_research.integrity import _TOOL_CALL_LOG, record_tool_call
 
 _SAMPLE_DATA = Path(__file__).parent / "sample_data"
+_FLYER_TEMPLATE = Path(__file__).with_name("flyer_template.html")
 
 
 def _logged_result(
@@ -114,6 +116,41 @@ def _render_fact(label: str, testid: str, value: object) -> str:
           <dt>{_escape(label)}</dt>
           <dd data-testid="{_escape(testid)}">{_escape(value)}</dd>
         </div>"""
+
+
+def _render_flyer_html(event_details: dict) -> str:
+    venue_name = event_details["venue_name"]
+    venue_address = event_details["venue_address"]
+    date = event_details["date"]
+    time = event_details["time"]
+    party_size = event_details["party_size"]
+    condition = event_details["condition"]
+    temperature_c = event_details["temperature_c"]
+    total_gbp = event_details["total_gbp"]
+    deposit_required_gbp = event_details["deposit_required_gbp"]
+
+    facts_html = "\n".join(
+        [
+            _render_fact("Venue", "venue_name", venue_name),
+            _render_fact("Address", "venue_address", venue_address),
+            _render_fact("Date", "date", date),
+            _render_fact("Time", "time", time),
+            _render_fact("Party size", "party_size", party_size),
+            _render_fact("Weather", "condition", condition),
+            _render_fact("Temperature", "temperature_c", f"{temperature_c}C"),
+            _render_fact("Total", "total_gbp", _format_gbp(total_gbp)),
+            _render_fact("Deposit", "deposit_required_gbp", _format_gbp(deposit_required_gbp)),
+        ]
+    )
+    template = Template(_FLYER_TEMPLATE.read_text(encoding="utf-8"))
+    return template.substitute(
+        title=f"{_escape(venue_name)} Event Flyer",
+        heading=f"{_escape(venue_name)} Night",
+        date_summary=_escape(date),
+        facts_html=facts_html,
+        condition_summary=_escape(condition),
+        temperature_summary=f"{_escape(temperature_c)}C",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -417,7 +454,7 @@ def calculate_cost(
 
 
 # ---------------------------------------------------------------------------
-# TODO 4 — generate_flyer
+# generate_flyer
 # ---------------------------------------------------------------------------
 def generate_flyer(session: Session, event_details: dict) -> ToolResult:
     """Produce an HTML flyer and write it to workspace/flyer.html.
@@ -473,119 +510,7 @@ def generate_flyer(session: Session, event_details: dict) -> ToolResult:
         )
 
     try:
-        venue_name = event_details["venue_name"]
-        venue_address = event_details["venue_address"]
-        date = event_details["date"]
-        time = event_details["time"]
-        party_size = event_details["party_size"]
-        condition = event_details["condition"]
-        temperature_c = event_details["temperature_c"]
-        total_gbp = event_details["total_gbp"]
-        deposit_required_gbp = event_details["deposit_required_gbp"]
-
-        facts_html = "\n".join(
-            [
-                _render_fact("Venue", "venue_name", venue_name),
-                _render_fact("Address", "venue_address", venue_address),
-                _render_fact("Date", "date", date),
-                _render_fact("Time", "time", time),
-                _render_fact("Party size", "party_size", party_size),
-                _render_fact("Weather", "condition", condition),
-                _render_fact("Temperature", "temperature_c", f"{temperature_c}C"),
-                _render_fact("Total", "total_gbp", _format_gbp(total_gbp)),
-                _render_fact(
-                    "Deposit",
-                    "deposit_required_gbp",
-                    _format_gbp(deposit_required_gbp),
-                ),
-            ]
-        )
-        flyer_html = f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{_escape(venue_name)} Event Flyer</title>
-  <style>
-    :root {{
-      color-scheme: light;
-      --ink: rgb(29, 37, 44);
-      --muted: rgb(92, 104, 115);
-      --paper: rgb(255, 253, 248);
-      --line: rgb(216, 208, 195);
-      --accent: rgb(159, 61, 46);
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: Georgia, "Times New Roman", serif;
-      background: rgb(238, 231, 220);
-      color: var(--ink);
-    }}
-    article {{
-      max-width: 720px;
-      margin: 32px auto;
-      padding: 40px;
-      background: var(--paper);
-      border: 1px solid var(--line);
-    }}
-    h1 {{
-      margin: 0 0 8px;
-      font-size: 40px;
-      line-height: 1.1;
-      letter-spacing: 0;
-    }}
-    .subtitle {{
-      margin: 0 0 28px;
-      color: var(--muted);
-      font-size: 18px;
-    }}
-    dl {{
-      display: grid;
-      gap: 0;
-      margin: 0;
-      border-top: 1px solid var(--line);
-    }}
-    .fact-row {{
-      display: grid;
-      grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
-      gap: 20px;
-      padding: 14px 0;
-      border-bottom: 1px solid var(--line);
-    }}
-    dt {{
-      color: var(--muted);
-      font-size: 14px;
-      text-transform: uppercase;
-    }}
-    dd {{
-      margin: 0;
-      font-size: 18px;
-      overflow-wrap: anywhere;
-    }}
-    .weather {{
-      margin: 28px 0 0;
-      padding-left: 16px;
-      border-left: 4px solid var(--accent);
-      color: var(--muted);
-    }}
-  </style>
-</head>
-<body>
-  <article>
-    <h1 data-testid="title">{_escape(venue_name)} Night</h1>
-    <p class="subtitle">Edinburgh booking details for <span data-testid="date_summary">{_escape(date)}</span>.</p>
-    <dl>
-{facts_html}
-    </dl>
-    <p class="weather">
-      Forecast: <span data-testid="condition_summary">{_escape(condition)}</span>,
-      <span data-testid="temperature_summary">{_escape(temperature_c)}C</span>.
-    </p>
-  </article>
-</body>
-</html>
-"""
+        flyer_html = _render_flyer_html(event_details)
         flyer_path = session.path("workspace/flyer.html")
         flyer_path.parent.mkdir(parents=True, exist_ok=True)
         flyer_path.write_text(flyer_html, encoding="utf-8")

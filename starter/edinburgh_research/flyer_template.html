@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${title}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: rgb(29, 37, 44);
+      --muted: rgb(92, 104, 115);
+      --paper: rgb(255, 253, 248);
+      --line: rgb(216, 208, 195);
+      --accent: rgb(159, 61, 46);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      background: rgb(238, 231, 220);
+      color: var(--ink);
+    }
+    article {
+      max-width: 720px;
+      margin: 32px auto;
+      padding: 40px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 40px;
+      line-height: 1.1;
+      letter-spacing: 0;
+    }
+    .subtitle {
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+    dl {
+      display: grid;
+      gap: 0;
+      margin: 0;
+      border-top: 1px solid var(--line);
+    }
+    .fact-row {
+      display: grid;
+      grid-template-columns: minmax(120px, 1fr) minmax(0, 2fr);
+      gap: 20px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    dt {
+      color: var(--muted);
+      font-size: 14px;
+      text-transform: uppercase;
+    }
+    dd {
+      margin: 0;
+      font-size: 18px;
+      overflow-wrap: anywhere;
+    }
+    .weather {
+      margin: 28px 0 0;
+      padding-left: 16px;
+      border-left: 4px solid var(--accent);
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <article>
+    <h1 data-testid="title">${heading}</h1>
+    <p class="subtitle">Edinburgh booking details for <span data-testid="date_summary">${date_summary}</span>.</p>
+    <dl>
+${facts_html}
+    </dl>
+    <p class="weather">
+      Forecast: <span data-testid="condition_summary">${condition_summary}</span>,
+      <span data-testid="temperature_summary">${temperature_summary}</span>.
+    </p>
+  </article>
+</body>
+</html>
