@@ -58,6 +58,11 @@ def _execution_failed_result(tool_name: str, arguments: dict, exc: Exception) ->
     return _logged_result(tool_name, arguments, False, output, str(err), err)
 
 
+def _tool_error_result(tool_name: str, arguments: dict, err: ToolError) -> ToolResult:
+    output = {"error": err.code, "message": err.message}
+    return _logged_result(tool_name, arguments, False, output, str(err), err)
+
+
 def _load_json_fixture(filename: str) -> object:
     fixture_path = _SAMPLE_DATA / filename
 
@@ -236,8 +241,8 @@ def venue_search(near: str, party_size: int, budget_max_gbp: int = 1000) -> Tool
             output,
             f"venue_search({near}, party={party_size}): {len(results)} result(s)",
         )
-    except ToolError:
-        raise
+    except ToolError as exc:
+        return _tool_error_result(tool_name, arguments, exc)
     except Exception as exc:
         return _execution_failed_result(tool_name, arguments, exc)
 
@@ -312,8 +317,8 @@ def get_weather(city: str, date: str) -> ToolResult:
             f"get_weather({city}, {date_key}): "
             f"{forecast['condition']}, {forecast['temperature_c']}C",
         )
-    except ToolError:
-        raise
+    except ToolError as exc:
+        return _tool_error_result(tool_name, arguments, exc)
     except Exception as exc:
         return _execution_failed_result(tool_name, arguments, exc)
 
@@ -447,8 +452,8 @@ def calculate_cost(
             f"calculate_cost({venue_key}, {party_size}): total £{total_gbp}, "
             f"deposit £{deposit_required_gbp}",
         )
-    except ToolError:
-        raise
+    except ToolError as exc:
+        return _tool_error_result(tool_name, arguments, exc)
     except Exception as exc:
         return _execution_failed_result(tool_name, arguments, exc)
 
@@ -526,8 +531,8 @@ def generate_flyer(session: Session, event_details: dict) -> ToolResult:
             output,
             f"generate_flyer: wrote workspace/flyer.html ({len(flyer_html)} chars)",
         )
-    except ToolError:
-        raise
+    except ToolError as exc:
+        return _tool_error_result(tool_name, arguments, exc)
     except Exception as exc:
         return _execution_failed_result(tool_name, arguments, exc)
 
