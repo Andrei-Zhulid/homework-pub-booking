@@ -218,7 +218,8 @@ def find_session(session_id_or_path: str) -> Path | None:
     Search order:
       1. Absolute/relative path
       2. ./sessions/<id>
-      3. <platform data dir>/examples/*/<id>
+      3. ./sessions/examples/*/<id>
+      4. <platform data dir>/examples/*/<id>
     """
     cand = Path(session_id_or_path)
     if cand.is_absolute() and cand.exists():
@@ -230,11 +231,16 @@ def find_session(session_id_or_path: str) -> Path | None:
     local = Path("sessions") / session_id_or_path
     if local.exists():
         return local.resolve()
-    for sub in (
-        Path("sessions").glob(f"*{session_id_or_path}*") if Path("sessions").exists() else []
-    ):
-        if sub.is_dir():
-            return sub.resolve()
+    if Path("sessions").exists():
+        local_patterns = [
+            f"*{session_id_or_path}*",
+            f"examples/*/{session_id_or_path}",
+            f"examples/*/*{session_id_or_path}*",
+        ]
+        for pattern in local_patterns:
+            for sub in Path("sessions").glob(pattern):
+                if sub.is_dir():
+                    return sub.resolve()
 
     # Platform user-data dir
     data_root = _platform_data_dir()
@@ -357,6 +363,7 @@ def main() -> int:
         candidates: list[Path] = []
         if Path("sessions").exists():
             candidates.extend(Path("sessions").glob("sess_*"))
+            candidates.extend(Path("sessions").glob("examples/*/sess_*"))
         data_root = _platform_data_dir()
         if data_root.exists():
             candidates.extend(data_root.glob("examples/*/sess_*"))

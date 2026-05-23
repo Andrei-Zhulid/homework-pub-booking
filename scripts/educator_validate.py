@@ -167,6 +167,8 @@ def _find_latest_session_dir(scenario_hint: str) -> Path | None:
     if (REPO / "sessions").exists():
         candidates.extend((REPO / "sessions").glob(f"*{scenario_hint}*"))
         candidates.extend((REPO / "sessions").glob("sess_*"))
+        candidates.extend((REPO / "sessions").glob(f"examples/*{scenario_hint}*/sess_*"))
+        candidates.extend((REPO / "sessions").glob("examples/*/sess_*"))
 
     # platform dir
     if sys.platform == "darwin":
