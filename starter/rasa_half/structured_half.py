@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -93,17 +94,27 @@ class RasaStructuredHalf(StructuredHalf):
             )
 
         booking = rasa_msg["metadata"]["booking"]
-        # TODO: Construct the request body using `rasa_msg`. It needs to be a JSON string encoded as utf-8.
-        # Ensure you include 'sender', 'message', and 'metadata' containing 'booking'.
-
-        # TODO: Create a urllib_request.Request object pointing to `self.rasa_url`, with the encoded body.
-        # Make sure to set the Content-Type header to application/json and method to POST.
+        body = json.dumps(
+            {
+                "sender": rasa_msg["sender"],
+                "message": rasa_msg["message"],
+                "metadata": {"booking": booking},
+            }
+        ).encode("utf-8")
+        req = urllib_request.Request(
+            self.rasa_url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
 
         # We execute the blocking urllib call in a thread pool for async compatibility
         try:
-            # TODO: Execute the request using `urllib_request.urlopen` in a lambda passed to run_in_executor.
-            # Use `self.request_timeout_s` as the timeout.
-            raise NotImplementedError("TODO: Implement HTTP POST to Rasa")
+            loop = asyncio.get_running_loop()
+            raw_response = await loop.run_in_executor(
+                None,
+                lambda: _read_urlopen(req, self.request_timeout_s),
+            )
         except HTTPError as e:
             return HalfResult(
                 success=False,
@@ -147,17 +158,107 @@ class RasaStructuredHalf(StructuredHalf):
                 next_action="escalate",
             )
 
-        # TODO: Parse the Rasa response array (`messages`).
-        # Loop through `messages`. Look for a 'custom' dict containing 'action' == 'committed' or 'rejected'.
-        # Set `confirmed`, `rejected`, `rejection_reason` and `booking_reference` accordingly.
-        # Note: If action is 'committed', extract 'booking_reference' from 'custom' or text.
-        # If action is 'rejected', extract 'rejection_reason' from 'text'.
-        
-        # TODO: Return the appropriate HalfResult.
-        # - If confirmed and not rejected: success=True, next_action="complete", include booking reference in output.
-        # - If rejected: success=False, next_action="escalate", include reason in output.
-        # - If neither: success=False, next_action="escalate", note unexpected output.
-        raise NotImplementedError("TODO: Parse Rasa response and return HalfResult")
+        if not isinstance(messages, list):
+            return HalfResult(
+                success=False,
+                output={
+                    "error": "rasa returned unexpected JSON shape",
+                    "booking": booking,
+                    "raw": messages,
+                },
+                summary="rasa response was not a message array",
+                next_action="escalate",
+            )
+
+        confirmed = False
+        rejected = False
+        rejection_reason: str | None = None
+        booking_reference: str | None = None
+
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+
+            custom = message.get("custom")
+            if not isinstance(custom, dict):
+                custom = {}
+
+            text = str(message.get("text") or "")
+            action = custom.get("action")
+
+            lowered_text = text.lower()
+
+            if action == "committed" or lowered_text.startswith("booking confirmed"):
+                confirmed = True
+                booking_reference = (
+                    custom.get("booking_reference")
+                    or booking_reference
+                    or _extract_booking_reference(text)
+                )
+
+            if action == "rejected" or "reason:" in lowered_text or "rejected" in lowered_text:
+                rejected = True
+                rejection_reason = (
+                    custom.get("rejection_reason")
+                    or custom.get("reason")
+                    or rejection_reason
+                    or _extract_rejection_reason(text)
+                    or "booking_rejected"
+                )
+
+        if confirmed and not rejected:
+            return HalfResult(
+                success=True,
+                output={
+                    "status": "committed",
+                    "booking": booking,
+                    "booking_reference": booking_reference,
+                    "rasa_messages": messages,
+                },
+                summary=f"booking confirmed: {booking_reference or 'no reference returned'}",
+                next_action="complete",
+            )
+
+        if rejected:
+            return HalfResult(
+                success=False,
+                output={
+                    "status": "rejected",
+                    "reason": rejection_reason,
+                    "booking": booking,
+                    "rasa_messages": messages,
+                },
+                summary=f"booking rejected: {rejection_reason}",
+                next_action="escalate",
+            )
+
+        return HalfResult(
+            success=False,
+            output={
+                "error": "rasa response did not confirm or reject booking",
+                "booking": booking,
+                "rasa_messages": messages,
+            },
+            summary="unexpected rasa output",
+            next_action="escalate",
+        )
+
+
+def _extract_booking_reference(text: str) -> str | None:
+    if m := re.search(r"\breference:\s*([A-Z0-9_-]+)", text, re.IGNORECASE):
+        return m.group(1).rstrip(".")
+    return None
+
+
+def _extract_rejection_reason(text: str) -> str | None:
+    if m := re.search(r"\breason:\s*([A-Za-z0-9_-]+)", text, re.IGNORECASE):
+        return m.group(1)
+    return None
+
+
+def _read_urlopen(req: urllib_request.Request, timeout: float) -> bytes:
+    with urllib_request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
 
 
 # ─────────────────────────────────────────────────────────────────────
