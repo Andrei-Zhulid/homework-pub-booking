@@ -76,7 +76,8 @@ def normalise_booking_payload(raw: dict) -> dict:
         raise ValidationFailed("missing party_size")
     party_size = parse_party_size(party_size_raw)
 
-    deposit_gbp = parse_currency_gbp(raw.get("deposit", 0))
+    deposit_raw = raw.get("deposit_gbp", raw.get("deposit", 0))
+    deposit_gbp = parse_currency_gbp(deposit_raw)
 
     duration = raw.get("duration_hours", 3)
     if isinstance(duration, str) and duration.isdigit():
