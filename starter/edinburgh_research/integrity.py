@@ -106,7 +106,7 @@ def extract_labeled_facts(text: str) -> list[str]:
     facts: list[str] = []
 
     structured = extract_testid_facts(text)
-    for field in (
+    for testid_field in (
         "venue_name",
         "venue_address",
         "condition",
@@ -114,7 +114,7 @@ def extract_labeled_facts(text: str) -> list[str]:
         "total_gbp",
         "deposit_required_gbp",
     ):
-        value = structured.get(field)
+        value = structured.get(testid_field)
         if value:
             facts.append(value.strip().strip(" \t\r\n.。"))
 
