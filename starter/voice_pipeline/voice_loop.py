@@ -341,7 +341,7 @@ async def _transcribe_speechmatics(
 async def _speak_rime(text: str, api_key: str, sd) -> None:
     """Call Rime.ai TTS, get MP3 back, play it."""
     import httpx
-    
+
     url = "https://users.rime.ai/v1/rime-tts"
     payload = {
         "speaker": "luna",  # an Arcana voice; change if Rime renames

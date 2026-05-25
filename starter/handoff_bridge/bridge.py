@@ -223,6 +223,7 @@ def build_forward_handoff(session: Session, loop_result: HalfResult) -> Handoff:
         ),
     )
 
+
 def build_reverse_task(loop_result: HalfResult, struct_result: HalfResult) -> dict:
     """Build the task dict to pass back to the loop half after a reject."""
     reason = (

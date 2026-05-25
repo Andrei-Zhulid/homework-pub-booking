@@ -41,7 +41,9 @@ def _logged_result(
     return ToolResult(success=success, output=output, summary=summary, error=error)
 
 
-def _invalid_input_result(tool_name: str, arguments: dict, message: str, context: dict) -> ToolResult:
+def _invalid_input_result(
+    tool_name: str, arguments: dict, message: str, context: dict
+) -> ToolResult:
     err = ToolError(code="SA_TOOL_INVALID_INPUT", message=message, context=context)
     output = {"error": "invalid_input", "message": err.message}
     return _logged_result(tool_name, arguments, False, output, str(err), err)
