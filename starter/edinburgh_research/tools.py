@@ -79,9 +79,18 @@ def _load_json_fixture(filename: str) -> object:
 
 def _venue_matches(venue: dict, near_query: str, party_size: int, budget_max_gbp: int) -> bool:
     venue_minimum_gbp = venue.get("hire_fee_gbp", 0) + venue.get("min_spend_gbp", 0)
+    venue_area = str(venue.get("area", "")).casefold().strip()
+    near_query = near_query.strip()
+    location_matches = (
+        not venue_area
+        and not near_query
+        or bool(venue_area)
+        and bool(near_query)
+        and (near_query in venue_area or venue_area in near_query)
+    )
     return (
         venue.get("open_now") is True
-        and near_query in str(venue.get("area", "")).casefold()
+        and location_matches
         and venue.get("seats_available_evening", 0) >= party_size
         and venue_minimum_gbp <= budget_max_gbp
     )
