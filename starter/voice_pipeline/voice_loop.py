@@ -355,12 +355,13 @@ async def _speak_rime(text: str, api_key: str, sd) -> None:
         "Accept": "audio/mp3",
     }
 
-    # TODO: Make an async HTTP POST request using `httpx.AsyncClient` to `url` with `payload` as JSON and `headers`.
-    # Check for status_code == 200, and raise RuntimeError with the response text if it fails.
-    # Assign the raw bytes to `mp3_bytes`.
-    raise NotImplementedError("TODO: Implement async HTTP POST for Rime TTS")
-    
-    # mp3_bytes = <your variable>
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(url, json=payload, headers=headers)
+
+    if response.status_code != 200:
+        raise RuntimeError(f"Rime TTS failed ({response.status_code}): {response.text}")
+
+    mp3_bytes = response.content
 
     # Decode MP3 → PCM via pydub (stdlib can't handle mp3)
     try:
