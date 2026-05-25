@@ -2,25 +2,22 @@
 
 ## Your answer
 
-The planner produced two subgoals: sg_1 (research venues near Haymarket
-for a party of 6, assigned to loop) and sg_2 (produce a flyer with the
-chosen venue, weather, and cost, also loop). Both ran in the same
-executor session.
+The successful Ex5 workflow depends on the planner preserving the correct
+dataflow between tools, not just listing the right tools somewhere in the overall task.
+`calculate_cost` needs a concrete `venue_id` from `venue_search`, plus the `party_size`
+and `duration` from the task context. In the failed runs, the original planner
+split cost calculation into a separate subgoal that only mentioned "the venue".
+`depends_on` ordered it after venue search, but the loop executor was prompted with
+only the current subgoal, so it did not have the previous tool output available as
+arguments.
 
-Turn 1 called venue_search, get_weather, and calculate_cost in parallel
-— all three are parallel_safe because they only read fixtures. Turn 2
-wrote the flyer via generate_flyer (parallel_safe=False because it
-writes a file). Turn 3 called complete_task.
+That made it necessary to constrain the planning client. The corrected plan
+describes the right tool call sequence and makes the required data passing explicit.
+This allows the executor to collect all necessary details before the `generate_flyer`
+step, so the flyer tool can successfully produce the final result.
 
-The dataflow integrity check caught one issue during development: the
-template for "no deposit required" originally read "total under £300
-threshold", which put £300 in the flyer prose. That value was never
-returned by any tool — it's a rule threshold, not data. I simplified
-the phrasing to "No deposit required for this booking." Without the
-integrity check this would have slipped past review because £300 looks
-like a reasonable number in the right context.
 
 ## Citations
 
-- sessions/sess_*/logs/trace.jsonl — tool call sequence
-- sessions/sess_*/workspace/flyer.md — the produced flyer
+- sessions/examples/ex5-edinburgh-research/sess_eec1ae441648/logs/trace.jsonl — tool call sequence
+- sessions/examples/ex5-edinburgh-research/sess_eec1ae441648/workspace/flyer.html — the produced flyer
