@@ -12,6 +12,7 @@ what to do when the structured half says "no, go back and try again".
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from sovereign_agent.halves import HalfResult
@@ -59,56 +60,147 @@ class HandoffBridge:
 
         rounds = 0
         current_input: dict = initial_task
-        last_loop = last_struct = None
+        last_loop: HalfResult | None = None
+        last_struct: HalfResult | None = None
 
-        # TODO: Implement the bridge orchestration loop here.
-        # It should loop up to `self.max_rounds` times.
-        
-        # --- ROUND START ---
-        # 1. Increment the `rounds` counter.
-        # 2. Append a trace event indicating the round has started.
-        # Example schema:
-        # session.append_trace_event({
-        #     "event_type": "bridge.round_start",
-        #     "actor": "bridge",
-        #     "payload": {"round": rounds, "half": "loop"}
-        # })
-        
-        # --- RUN LOOP HALF ---
-        # 3. Run the loop_half using `current_input` (see `LoopHalf.run` which returns a `HalfResult`).
-        # 4. Handle Loop Half Outcomes:
-        #    a) If `loop_result.next_action == "complete"`, mark the session complete with `loop_result.output`,
-        #       append a "session.state_changed" trace event (from "executing" to "complete" via "loop"), 
-        #       and return a `BridgeResult` with outcome="completed".
-        #    b) If `loop_result.next_action != "handoff_to_structured"`, something went wrong.
-        #       Use `session.mark_failed({"reason": ...})` and return a `BridgeResult` with outcome="failed".
-        
-        # --- FORWARD HANDOFF ---
-        # 5. If handoff is requested, build it using `build_forward_handoff`.
-        # 6. Write the handoff to disk: `write_handoff(session, "structured", handoff)`
-        # 7. Append a "session.state_changed" trace event (from "loop" to "structured").
-        
-        # --- RUN STRUCTURED HALF ---
-        # 8. Run the structured_half passing `{"data": handoff.data}` as input.
-        #    (See `RasaStructuredHalf.run` for return value schemas).
-        # 9. Handle Structured Half Outcomes:
-        #    a) If `struct_result.next_action == "complete"`, mark session complete, log the state change,
-        #       and return outcome="completed".
-        #    b) If `struct_result.next_action == "escalate"`, it means Rasa rejected the booking.
-        #       - Use `build_reverse_task` to generate the new input for the next loop round.
-        #       - Append a state change event (from "structured" to "loop") including the rejection reason
-        #         (`struct_result.output.get("reason") or struct_result.summary`).
-        #       - **Crucial File Management:** The bridge needs to archive the old handoff file to prevent
-        #         stale data on the next round. Move `session.ipc_input_dir / "handoff_to_structured.json"`
-        #         to `session.handoffs_audit_dir / f"round_{rounds}_forward.json"`.
-        #       - `continue` to the next round.
-        #    c) Any other action: mark failed and return outcome="failed".
-        
-        # --- LOOP EXHAUSTION ---
-        # 10. If the loop exits because `rounds >= self.max_rounds`, use `session.mark_failed`
-        #     and return outcome="max_rounds_exceeded".
-        
-        raise NotImplementedError("TODO: Implement the bidirectional orchestration loop in HandoffBridge.run()")
+        while rounds < self.max_rounds:
+            rounds += 1
+            if session.state.state == "planning":
+                session.update_state(state="executing", current_half="loop")
+            session.append_trace_event(
+                {
+                    "event_type": "bridge.round_start",
+                    "actor": "bridge",
+                    "timestamp": now_utc().isoformat(),
+                    "payload": {"round": rounds, "half": "loop"},
+                }
+            )
+
+            last_loop = await self.loop_half.run(session, current_input)
+
+            if last_loop.next_action == "complete":
+                session.mark_complete(last_loop.output)
+                _append_state_change(
+                    session,
+                    from_state="executing",
+                    to_state="completed",
+                    round_number=rounds,
+                    summary=last_loop.summary,
+                )
+                return BridgeResult(
+                    outcome="completed",
+                    rounds=rounds,
+                    final_half_result=last_loop,
+                    summary=last_loop.summary,
+                )
+
+            if last_loop.next_action != "handoff_to_structured":
+                reason = (
+                    f"loop half returned unexpected next_action="
+                    f"{last_loop.next_action!r}: {last_loop.summary}"
+                )
+                failed_from = session.state.state
+                session.mark_failed(reason)
+                _append_state_change(
+                    session,
+                    from_state=failed_from,
+                    to_state="failed",
+                    round_number=rounds,
+                    reason=reason,
+                )
+                return BridgeResult(
+                    outcome="failed",
+                    rounds=rounds,
+                    final_half_result=last_loop,
+                    summary=reason,
+                )
+
+            handoff = build_forward_handoff(session, last_loop)
+            handoff_path = write_handoff(session, "structured", handoff)
+            session.update_state(
+                state="handed_off_to_structured",
+                current_half="structured",
+                handoff_history=[
+                    *session.state.handoff_history,
+                    handoff.to_dict(),
+                ],
+            )
+            _append_state_change(
+                session,
+                from_state="loop",
+                to_state="structured",
+                round_number=rounds,
+                reason=handoff.reason,
+            )
+
+            last_struct = await self.structured_half.run(session, {"data": handoff.data})
+            _archive_forward_handoff(session, handoff_path, rounds)
+
+            if last_struct.next_action == "complete":
+                session.mark_complete(last_struct.output)
+                _append_state_change(
+                    session,
+                    from_state="structured",
+                    to_state="completed",
+                    round_number=rounds,
+                    summary=last_struct.summary,
+                )
+                return BridgeResult(
+                    outcome="completed",
+                    rounds=rounds,
+                    final_half_result=last_struct,
+                    summary=last_struct.summary,
+                )
+
+            if last_struct.next_action == "escalate":
+                reason = last_struct.output.get("reason") or last_struct.summary
+                current_input = build_reverse_task(last_loop, last_struct)
+                session.update_state(state="executing", current_half="loop")
+                _append_state_change(
+                    session,
+                    from_state="structured",
+                    to_state="loop",
+                    round_number=rounds,
+                    reason=reason,
+                )
+                continue
+
+            reason = (
+                f"structured half returned unexpected next_action="
+                f"{last_struct.next_action!r}: {last_struct.summary}"
+            )
+            failed_from = session.state.state
+            session.mark_failed(reason)
+            _append_state_change(
+                session,
+                from_state=failed_from,
+                to_state="failed",
+                round_number=rounds,
+                reason=reason,
+            )
+            return BridgeResult(
+                outcome="failed",
+                rounds=rounds,
+                final_half_result=last_struct,
+                summary=reason,
+            )
+
+        reason = f"bridge exceeded max_rounds={self.max_rounds}"
+        failed_from = session.state.state
+        session.mark_failed(reason)
+        _append_state_change(
+            session,
+            from_state=failed_from,
+            to_state="failed",
+            round_number=rounds,
+            reason=reason,
+        )
+        return BridgeResult(
+            outcome="max_rounds_exceeded",
+            rounds=rounds,
+            final_half_result=last_struct or last_loop,
+            summary=reason,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -116,19 +208,31 @@ class HandoffBridge:
 # ---------------------------------------------------------------------------
 def build_forward_handoff(session: Session, loop_result: HalfResult) -> Handoff:
     """Package a loop result into a forward-handoff payload for structured."""
+    payload = loop_result.handoff_payload or {}
+    context_parts = [loop_result.summary]
+    if payload.get("context"):
+        context_parts.append(f"handoff context: {payload['context']}")
+    if loop_result.output:
+        context_parts.append(f"loop output: {loop_result.output}")
+
     return Handoff(
         from_half="loop",
         to_half="structured",
         written_at=now_utc(),
         session_id=session.session_id,
-        reason="loop-half requested confirmation",
-        context=loop_result.summary,
-        data=(loop_result.handoff_payload or {}).get("data") or loop_result.output,
+        reason=payload.get("reason") or "loop-half requested confirmation",
+        context="\n".join(context_parts),
+        data=payload.get("data") or loop_result.output,
         return_instructions=(
             "If you cannot confirm (party too large, deposit too high, etc.), "
             "respond with next_action=escalate and include a human-readable "
             "'reason' in output so the loop half can adapt."
         ),
+        constraints_reminder={
+            "loop_summary": loop_result.summary,
+            "loop_output": loop_result.output,
+            "handoff_payload": payload,
+        },
     )
 
 
@@ -146,6 +250,44 @@ def build_reverse_task(loop_result: HalfResult, struct_result: HalfResult) -> di
             "retry": True,
         },
     }
+
+
+def _append_state_change(
+    session: Session,
+    *,
+    from_state: str,
+    to_state: str,
+    round_number: int,
+    reason: str | None = None,
+    summary: str | None = None,
+) -> None:
+    payload = {
+        "from": from_state,
+        "to": to_state,
+        "round": round_number,
+    }
+    if reason is not None:
+        payload["reason"] = reason
+    if summary is not None:
+        payload["summary"] = summary
+    session.append_trace_event(
+        {
+            "event_type": "session.state_changed",
+            "actor": "bridge",
+            "timestamp": now_utc().isoformat(),
+            "payload": payload,
+        }
+    )
+
+
+def _archive_forward_handoff(session: Session, handoff_path: Path, round_number: int) -> None:
+    """Move the visible IPC handoff into the audit log before the next round."""
+    if not handoff_path.exists():
+        return
+    archive_path = session.handoffs_audit_dir / f"round_{round_number}_forward.json"
+    if archive_path.exists():
+        archive_path.unlink()
+    handoff_path.replace(archive_path)
 
 
 __all__ = [
