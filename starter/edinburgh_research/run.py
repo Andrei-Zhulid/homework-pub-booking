@@ -240,6 +240,7 @@ async def run_scenario(real: bool) -> int:
                 "  - party size: 6\n"
                 "  - date: 2026-04-25 (a Saturday)\n"
                 "  - time: 19:30\n"
+                "  - duration_hours: 3 hours\n"
                 "  - area: near Haymarket station, Edinburgh\n\n"
                 "REQUIRED tool sequence (all four tools MUST run, in order):\n"
                 "  1. venue_search(near='Haymarket', party_size=6, budget_max_gbp=800)\n"
