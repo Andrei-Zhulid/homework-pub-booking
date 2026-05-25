@@ -1,0 +1,6 @@
+{"event_type": "voice.utterance_in", "actor": "user", "timestamp": "2026-05-25T23:16:19.006559+00:00", "payload": {"text": "I want to make a booking for six people on the next Saturday .", "turn": 0, "mode": "voice"}}
+{"event_type": "voice.utterance_out", "actor": "manager", "timestamp": "2026-05-25T23:16:20.754364+00:00", "payload": {"text": "Aye, we can do that. I'll pencil you in for next Saturday. What's the contact number?", "turn": 0, "mode": "voice"}}
+{"event_type": "voice.utterance_in", "actor": "user", "timestamp": "2026-05-25T23:16:42.217147+00:00", "payload": {"text": "07\u00a09555\u00a03221 .", "turn": 1, "mode": "voice"}}
+{"event_type": "voice.utterance_out", "actor": "manager", "timestamp": "2026-05-25T23:16:44.516790+00:00", "payload": {"text": "I've got you down for next Saturday. We'll be in touch to confirm, 07 9555 3221.", "turn": 1, "mode": "voice"}}
+{"event_type": "voice.utterance_in", "actor": "user", "timestamp": "2026-05-25T23:17:02.209223+00:00", "payload": {"text": "Thank you . Goodbye .", "turn": 2, "mode": "voice"}}
+{"event_type": "voice.utterance_out", "actor": "manager", "timestamp": "2026-05-25T23:17:13.905090+00:00", "payload": {"text": "Cheerio.", "turn": 2, "mode": "voice"}}
