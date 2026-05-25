@@ -161,7 +161,7 @@ class HandoffBridge:
                     from_state="structured",
                     to_state="loop",
                     round_number=rounds,
-                    reason=reason,
+                    rejection_reason=_rejection_reason_text(last_struct) or reason,
                 )
                 continue
 
@@ -208,37 +208,28 @@ class HandoffBridge:
 # ---------------------------------------------------------------------------
 def build_forward_handoff(session: Session, loop_result: HalfResult) -> Handoff:
     """Package a loop result into a forward-handoff payload for structured."""
-    payload = loop_result.handoff_payload or {}
-    context_parts = [loop_result.summary]
-    if payload.get("context"):
-        context_parts.append(f"handoff context: {payload['context']}")
-    if loop_result.output:
-        context_parts.append(f"loop output: {loop_result.output}")
-
     return Handoff(
         from_half="loop",
         to_half="structured",
         written_at=now_utc(),
         session_id=session.session_id,
-        reason=payload.get("reason") or "loop-half requested confirmation",
-        context="\n".join(context_parts),
-        data=payload.get("data") or loop_result.output,
+        reason="loop-half requested confirmation",
+        context=loop_result.summary,
+        data=(loop_result.handoff_payload or {}).get("data") or loop_result.output,
         return_instructions=(
             "If you cannot confirm (party too large, deposit too high, etc.), "
             "respond with next_action=escalate and include a human-readable "
             "'reason' in output so the loop half can adapt."
         ),
-        constraints_reminder={
-            "loop_summary": loop_result.summary,
-            "loop_output": loop_result.output,
-            "handoff_payload": payload,
-        },
     )
-
 
 def build_reverse_task(loop_result: HalfResult, struct_result: HalfResult) -> dict:
     """Build the task dict to pass back to the loop half after a reject."""
-    reason = struct_result.output.get("reason") or struct_result.summary
+    reason = (
+        _rejection_reason_text(struct_result)
+        or struct_result.output.get("reason")
+        or struct_result.summary
+    )
     return {
         "task": (
             "The structured half rejected the previous proposal. "
@@ -259,6 +250,7 @@ def _append_state_change(
     to_state: str,
     round_number: int,
     reason: str | None = None,
+    rejection_reason: str | None = None,
     summary: str | None = None,
 ) -> None:
     payload = {
@@ -268,6 +260,8 @@ def _append_state_change(
     }
     if reason is not None:
         payload["reason"] = reason
+    if rejection_reason is not None:
+        payload["rejection_reason"] = rejection_reason
     if summary is not None:
         payload["summary"] = summary
     session.append_trace_event(
@@ -278,6 +272,21 @@ def _append_state_change(
             "payload": payload,
         }
     )
+
+
+def _rejection_reason_text(struct_result: HalfResult) -> str | None:
+    messages = struct_result.output.get("rasa_messages")
+    if not isinstance(messages, list):
+        return None
+
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        text = message.get("text")
+        if isinstance(text, str) and text:
+            return text.lower()
+
+    return None
 
 
 def _archive_forward_handoff(session: Session, handoff_path: Path, round_number: int) -> None:
