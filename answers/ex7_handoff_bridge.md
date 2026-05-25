@@ -2,31 +2,35 @@
 
 ## Your answer
 
-The HandoffBridge orchestrates round-trips between the loop half and
-structured half. Each round: loop runs, if next_action=handoff_to_structured
-the bridge writes a forward handoff file, invokes structured, and then
-either marks the session complete (structured confirmed) or builds a
-reverse task and loops back (structured escalated).
+The handoff bridge sits above the two halves and decides which one runs next.
+It runs the loop half until it asks for `handoff_to_structured`, writes the
+handoff, calls the structured half with the handoff data, and either completes
+the session or builds a retry task from the rejection reason and returns to
+the loop.
 
-The reverse-task path is the interesting one. On escalation, the
-bridge rewrites the initial_task into a dict that contains
-prior_result + rejection_reason + retry=True. The loop half sees
-this via the new executor invocation and — in a real LLM setting —
-would produce a different subgoal. In the scripted offline demo we
-hardcode the retry choice (royal_oak with 16 seats) so the test is
-deterministic.
+Session `sess_af1b32b48c57` demonstrates the expected two-round bridge flow.
 
-Every half transition emits a session.state_changed trace event via
-session.append_trace_event(). The integrity check (integrity.py)
-verifies the trace has at least one round_start, at least one
-state_changed, and at least one tool call — catching the case where
-the bridge reports success without doing real work.
+Round 1 handed `Haymarket Tap` to the structured half for a party of `12`.
+Rasa rejected it, and the bridge sent control back to the loop with:
 
-The stale-handoff cleanup moves old ipc/handoff_to_structured.json
-files into logs/handoffs/ instead of deleting them, preserving the
-audit trail.
+`sorry, we can't accept this booking. reason: party_too_large`
+
+Round 2 used that rejection in the next planner task, searched again, and
+handed off `The Royal Oak` for party size `6`. The structured half confirmed
+the booking with reference `BK-B7655866`.
+
+The trace shows the expected transitions:
+
+- round 1: `loop` -> `structured`
+- round 1: `structured` -> `loop`
+- round 2: `loop` -> `structured`
+- round 2: `structured` -> `completed`
+
+The forward handoff files were archived under `logs/handoffs/`, leaving no
+visible handoff files under `ipc/` at the end.
 
 ## Citations
 
-- starter/handoff_bridge/bridge.py — HandoffBridge.run + helpers
-- starter/handoff_bridge/integrity.py — verify_dataflow
+- sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/trace.jsonl
+- sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/handoffs/round_1_forward.json
+- sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/handoffs/round_2_forward.json
