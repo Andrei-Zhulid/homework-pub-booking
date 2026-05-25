@@ -112,6 +112,43 @@ def _build_fake_client() -> FakeLLMClient:
     )
 
 
+def _build_planner_client() -> FakeLLMClient:
+    """Return a deterministic plan.
+
+    The stock planner can split venue lookup, weather, cost, and flyer into
+    separate subgoals. `depends_on` orders those subgoals, but LoopHalf does
+    not inject prior tool outputs into later executor prompts, so the cost
+    subgoal can lack `venue_id`. Keep the dependent chain in one executor
+    context instead.
+    """
+    plan_json = json.dumps(
+        [
+            {
+                "id": "sg_1",
+                "description": (
+                    "Research and produce the Edinburgh event flyer end-to-end. "
+                    "Call venue_search(near='Haymarket', party_size=6, "
+                    "budget_max_gbp=800), call get_weather(city='edinburgh', "
+                    "date='2026-04-25'), then call calculate_cost with the "
+                    "venue_id from the venue_search result, party_size=6, "
+                    "duration_hours=3, and catering_tier='bar_snacks'. After "
+                    "those tool outputs are available, call generate_flyer with "
+                    "the venue, weather, and cost facts, then call complete_task "
+                    "with the flyer path."
+                ),
+                "success_criterion": (
+                    "venue_search, get_weather, calculate_cost, generate_flyer, "
+                    "and complete_task have all run; workspace/flyer.html exists"
+                ),
+                "estimated_tool_calls": 5,
+                "depends_on": [],
+                "assigned_half": "loop",
+            },
+        ]
+    )
+    return FakeLLMClient([ScriptedResponse(content=plan_json)])
+
+
 def _tools_are_implemented() -> tuple[bool, str]:
     """Probe tool modules for NotImplementedError. Returns (ok, message)."""
     from starter.edinburgh_research.tools import (
@@ -228,23 +265,25 @@ async def run_scenario(real: bool) -> int:
 
             cfg = Config.from_env()
             print(f"  LLM: {cfg.llm_base_url} (live)")
-            print(f"  planner:  {cfg.llm_planner_model}")
+            print("  planner:  predefined dataflow plan")
             print(f"  executor: {cfg.llm_executor_model}")
-            client = OpenAICompatibleClient(
+            planner_client = _build_planner_client()
+            executor_client = OpenAICompatibleClient(
                 base_url=cfg.llm_base_url,
                 api_key_env=cfg.llm_api_key_env,
             )
-            planner_model = cfg.llm_planner_model
+            planner_model = "fake"
             executor_model = cfg.llm_executor_model
         else:
             print("  LLM: FakeLLMClient (offline, scripted)")
-            client = _build_fake_client()
+            planner_client = _build_fake_client()
+            executor_client = _build_fake_client()
             planner_model = executor_model = "fake"
 
         tools = build_tool_registry(session)
         half = LoopHalf(
-            planner=DefaultPlanner(model=planner_model, client=client),
-            executor=DefaultExecutor(model=executor_model, client=client, tools=tools),  # type: ignore[arg-type]
+            planner=DefaultPlanner(model=planner_model, client=planner_client),
+            executor=DefaultExecutor(model=executor_model, client=executor_client, tools=tools),  # type: ignore[arg-type]
         )
 
         result = await half.run(session, {"task": "research Edinburgh venue and write flyer"})
