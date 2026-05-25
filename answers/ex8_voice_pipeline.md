@@ -2,29 +2,24 @@
 
 ## Your answer
 
-The voice pipeline has two modes with shared trace-event contract:
-text mode (run_text_mode, shipped complete) reads stdin and the
-manager persona replies via Llama-3.3-70B; voice mode (run_voice_mode,
-implemented here) uses Speechmatics for STT.
+The voice mode wraps the manager conversation loop with real audio. It
+records from the microphone, stops after silence, and saves each captured turn
+as a WAV file in the session workspace.
 
-The critical design choice is graceful degradation. run_voice_mode
-checks SPEECHMATICS_KEY and the speechmatics-python import before
-doing anything else. If either is missing, it logs a warning and
-falls through to run_text_mode. This means CI can pass the "voice
-loop implemented" check without Speechmatics credentials — the same
-code runs, just under the simpler transport.
+Speechmatics turns the audio into text, which is logged and sent to the
+Alasdair manager persona. Rime turns the reply into audio and plays it back.
+If `SPEECHMATICS_KEY` is missing, voice mode falls back to text mode.
 
-Both modes emit voice.utterance_in and voice.utterance_out trace
-events with payload {text, turn, mode}. The mode field tells the
-grader which transport was in use. Same trace shape = identical
-downstream analysis.
+Session `sess_bbae689b51b2` demonstrates the real voice path completed three turns.
+The user asked for a booking for six people next Saturday, gave a phone number,
+then said goodbye. The manager accepted the booking, asked for the contact
+number, confirmed it, and ended with "Cheerio." The trace contains all six
+required events: three user `voice.utterance_in` entries and three manager
+`voice.utterance_out` entries, all marked with `mode: "voice"`.
 
-The ManagerPersona class holds a conversation history list and calls
-an LLM for each turn. It's deterministic given identical history +
-model seed, which makes the tests stable even though we talk to a
-real model.
+User voice interaction is saved in `sessions/homework/ex8/sess_bbae689b51b2/workspace/`.
 
 ## Citations
 
-- starter/voice_pipeline/voice_loop.py — run_voice_mode
-- starter/voice_pipeline/manager_persona.py — LLM-backed persona
+- sessions/homework/ex8/sess_bbae689b51b2/logs/trace.jsonl`
+- sessions/homework/ex8/sess_bbae689b51b2/workspace/`
