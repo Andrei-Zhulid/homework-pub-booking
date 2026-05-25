@@ -131,10 +131,9 @@ def _build_planner_client() -> FakeLLMClient:
                     "budget_max_gbp=800), call get_weather(city='edinburgh', "
                     "date='2026-04-25'), then call calculate_cost with the "
                     "venue_id from the venue_search result, party_size=6, "
-                    "duration_hours=3, and catering_tier='bar_snacks'. After "
-                    "those tool outputs are available, call generate_flyer with "
-                    "the venue, weather, and cost facts, then call complete_task "
-                    "with the flyer path."
+                    "duration_hours=3. After those tool outputs are available, "
+                    "call generate_flyer with the venue, weather, cost facts, "
+                    "and time=19:30, then call complete_task with the flyer path."
                 ),
                 "success_criterion": (
                     "venue_search, get_weather, calculate_cost, generate_flyer, "
