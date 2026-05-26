@@ -11,10 +11,9 @@ split cost calculation into a separate subgoal that only mentioned "the venue".
 only the current subgoal, so it did not have the previous tool output available as
 arguments.
 
-That made it necessary to constrain the planning client. The corrected plan
-describes the right tool call sequence and makes the required data passing explicit.
-This allows the executor to collect all necessary details before the `generate_flyer`
-step, so the flyer tool can successfully produce the final result.
+The correct plan describes the right tool call sequence and makes the data flow between
+the tools explicit. This gives the executor everything it needs before the
+`generate_flyer` step, so the flyer can be produced without fabricating values.
 
 
 ## Citations
