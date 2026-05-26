@@ -1,0 +1,6 @@
+{"event_type": "voice.utterance_in", "actor": "user", "timestamp": "2026-05-26T07:11:53.107202+00:00", "payload": {"text": "I want to make a booking for 6 people on the next Saturday.", "turn": 0, "mode": "text"}}
+{"event_type": "voice.utterance_out", "actor": "manager", "timestamp": "2026-05-26T07:11:54.192194+00:00", "payload": {"text": "Aye, we can do that. I'll pencil you in for next Saturday. What's the contact number?", "turn": 0, "mode": "text"}}
+{"event_type": "voice.utterance_in", "actor": "user", "timestamp": "2026-05-26T07:12:06.831273+00:00", "payload": {"text": "079 555 55 55", "turn": 1, "mode": "text"}}
+{"event_type": "voice.utterance_out", "actor": "manager", "timestamp": "2026-05-26T07:12:18.569281+00:00", "payload": {"text": "I've got you down for next Saturday. We'll be in touch, 079 555 55 55.", "turn": 1, "mode": "text"}}
+{"event_type": "voice.utterance_in", "actor": "user", "timestamp": "2026-05-26T07:12:49.275048+00:00", "payload": {"text": "Thank you, goodbuy", "turn": 2, "mode": "text"}}
+{"event_type": "voice.utterance_out", "actor": "manager", "timestamp": "2026-05-26T07:12:49.831529+00:00", "payload": {"text": "Cheerio.", "turn": 2, "mode": "text"}}
