@@ -4,28 +4,21 @@
 
 ### Your answer
 
-In my Ex7 run (session sess_a382a2149fc1), the planner's second
-subgoal was sg_2 "commit the booking under policy rules" with
-assigned_half: "structured". The signal that drove this was the task
-text naming a deterministic constraint — "under policy rules".
-Sovereign-agent's DefaultPlanner is prompted with the list of
-available halves and their purposes; when subgoal description
-mentions rules/policy/limits, the planner prefers structured.
+The planner never assigned a subgoal to the structured half. In the first planner ticket, tk_12c59d81, the subgoal was "find venue near haymarket for 12" with "assigned_half": "loop". After the structured half rejected that proposal, the second planner ticket, tk_7a0cd9f6, also assigned its retry subgoal to "loop". So the planner did not directly decide to hand off to the structured half.
 
-This decision is advisory, not physical. The orchestrator respects
-it only because both halves are wired up. If only a loop half
-existed (as in research_assistant), a subgoal assigned to structured
-would go to the void. That's failure mode #4 from the course slides.
+The actual half transition happened one layer down. In executor ticket tk_d04986ca, the executor called handoff_to_structured with the reason:
 
-The broader lesson: the planner makes an architectural decision
-based on prose interpretation. Put the rules somewhere the LLM
-cannot mis-assign — in the structured half's Python — and prose
-ambiguity no longer matters.
+"loop half identified a candidate venue; passing to structured half for confirmation under policy rules"
+
+The next trace record shows session.state_changed {from: loop, to: structured, round: 1, reason: "loop-half requested confirmation"}. The signal was that the loop half had a concrete booking candidate to check under structured policy: venue_id "Haymarket Tap", date "2026-04-25", time "19:30", party_size "12", and deposit "£0".
 
 ### Citation
 
-- sessions/sess_a382a2149fc1/logs/tickets/tk_*/raw_output.json
-- sessions/sess_a382a2149fc1/logs/trace.jsonl:23
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/tickets/tk_12c59d81/raw_output.json`
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/tickets/tk_d04986ca/raw_output.json`
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/tickets/tk_7a0cd9f6/raw_output.json`
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/trace.jsonl`, lines 4-7.
+
 
 ---
 
@@ -33,47 +26,37 @@ ambiguity no longer matters.
 
 ### Your answer
 
-During Ex5 development my integrity check caught a subtle fabrication
-that manual review missed. In session sess_de44a1b8eb12 the flyer
-claimed "Total: £560" and "Deposit: £112" — plausible numbers that
-followed the deposit formula in catering.json. I skimmed and moved on.
+This session (sess_eec1ae441648) passed the integrity check — all facts in the flyer trace back to tool outputs. The scenario below describes exactly where the check would trigger, and is constructed from the real numbers in those logs.
 
-verify_dataflow returned ok=False with unverified_facts=['£560','£112'].
-The trace showed calculate_cost returned total_gbp=540, deposit=0. The
-real total was £540 under the £300 deposit threshold. The LLM had
-written "£560" plausibly — close enough that a human reviewer wouldn't
-notice without cross-referencing.
+calculate_cost returned total_gbp: 356, deposit_required_gbp: 71. In this run the executor got both values right on the retry. What it actually could have done — and what the check is designed to catch — is recompute the deposit itself rather than read it from the tool output.
 
-The check caught it because it compared against ground truth in
-_TOOL_CALL_LOG, not against "does this look reasonable." The lesson
-generalises: if the validator would pass a human skim, plant a
-deliberately-weird value like £9999 and confirm it's caught.
+£71 is round(356 × 0.20). A model could use a common number for deposits - 25%, which gives £89. The flyer showing Total: £356 / Deposit: £89 looks entirely plausible to a human reviewer: both numbers are in the right ballpark, the ratio is a round percentage, and everything else on the page — venue, address, date, weather — is correct. There is nothing that looks obviously wrong.
 
 ### Citation
 
-- sessions/sess_de44a1b8eb12/workspace/flyer.md:12
-- sessions/sess_de44a1b8eb12/logs/trace.jsonl:15
+- `sessions/examples/ex5-edinburgh-research/sess_eec1ae441648/logs/trace.jsonl`, lines 3-7.
+- `sessions/examples/ex5-edinburgh-research/sess_eec1ae441648/logs/tickets/tk_9b6935c9/raw_output.json`, lines 27-35 and 64-82.
+- `sessions/examples/ex5-edinburgh-research/sess_eec1ae441648/workspace/flyer.html`, lines 103-120.
+- `starter/edinburgh_research/integrity.py`, lines 1158-224.
 
 ---
 
-## Q3 — Removing one framework primitive
+## Q3 — Production failure
 
 ### Your answer
 
-I'd keep session directories (Decision 1) as the last thing standing
-and rebuild everything else if forced. The forward-only state machine
-(Decision 2) is important but fragile without directories. Tickets
-(Decision 3) I could rebuild as .jsonl files inside the session.
-Atomic-rename IPC (Decision 5) is replaceable by directory polling.
+The failure I'd expect first is a silent scope change mid-negotiation. In `sess_af1b32b48c57`, round 1 handed off `party_size: "12"` — visible in `logs/handoffs/round_1_forward.json`, field `data.party_size`. The structured half rejected it as `party_too_large` (trace.jsonl line 7). In round 2, the executor searched `party_size: 6` in Old Town — not Haymarket — and handed off `party_size: "6"` (`round_2_forward.json`, `data.party_size`). The structured half confirmed it and issued booking reference `BK-B7655866` (trace.jsonl line 14).
 
-Session directories are the irreplaceable piece. Losing them:
-cross-tenant data leaks, reconstructing per-run state from logs,
-"how did this session end up this way" becomes SQL archaeology
-instead of cat. The slides compare it to git commits being the
-foundation — you can rebuild merge, diff, blame from commits but
-not commits from the rest. Session directories are commits.
+The session completed with `state: success` on both executor tickets, tk_d04986ca and tk_fd2065bb. No alarm was raised anywhere. The customer asked for 12 people at Haymarket and received a confirmed booking for 6 people in Old Town.
+
+The primitive that surfaces this is **IPC atomic rename**. Every handoff the bridge accepts is moved from `ipc/` to `logs/handoffs/` via atomic rename before dispatch — that rename is what converts an in-flight message into a durable archived record. The result is that `round_1_forward.json` and `round_2_forward.json` sit side by side with full payloads intact. A post-session monitor doing one comparison — `round_1.data.party_size` against `round_2.data.party_size`, or either against the original task parameters — would catch the substitution immediately. Without atomic rename discipline, the round-1 payload is gone by the time round-2 runs, and there is nothing to compare against.
+
+The ticket state machine cannot catch this: `state: success` means no exception was thrown, not that the booking matched what the customer requested. The manifest records which tools ran, not whether their outputs were faithful to the original task. The handoff audit trail is the only artifact that preserves both proposals in comparable form, and it only exists because the IPC rename happens unconditionally before the handler fires.
 
 ### Citation
 
-- sessions/sess_de44a1b8eb12/ — the directory itself
-- sessions/sess_a382a2149fc1/logs/trace.jsonl
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/handoffs/round_1_forward.json`
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/handoffs/round_2_forward.json`
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/trace.jsonl`, lines 7 and 14.
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/tickets/tk_d04986ca/state.json`
+- `sessions/examples/ex7-handoff-bridge/sess_af1b32b48c57/logs/tickets/tk_fd2065bb/state.json`
