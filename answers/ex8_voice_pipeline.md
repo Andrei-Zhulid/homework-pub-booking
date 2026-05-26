@@ -19,7 +19,10 @@ required events: three user `voice.utterance_in` entries and three manager
 
 User voice interaction is saved in `sessions/homework/ex8/sess_bbae689b51b2/workspace/`.
 
+The text session is logged in `sess_320bbac376c2` (`mode: "text"`).
+
 ## Citations
 
-- sessions/homework/ex8/sess_bbae689b51b2/logs/trace.jsonl`
-- sessions/homework/ex8/sess_bbae689b51b2/workspace/`
+- sessions/homework/ex8/sess_bbae689b51b2/logs/trace.jsonl
+- sessions/homework/ex8/sess_bbae689b51b2/workspace/
+- sessions/homework/ex8/sess_320bbac376c2/logs/trace.jsonl
